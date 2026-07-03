@@ -1,0 +1,29 @@
+# Credentials — NEVER commit
+config/.env
+data/.kite_token_cache.json
+data/models/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.so
+
+# Data & Reports
+data/*.db
+data/*.db-shm
+data/*.db-wal
+reports/
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
