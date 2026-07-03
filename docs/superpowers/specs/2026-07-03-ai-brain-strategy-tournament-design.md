@@ -1,3 +1,5 @@
+
+
 # AI Brain: Strategy Tournament + Mistake Learning
 
 Status: Approved by user 2026-07-03. Ready for implementation planning.
