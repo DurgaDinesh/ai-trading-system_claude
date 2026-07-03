@@ -18,6 +18,10 @@ data/*.db-shm
 data/*.db-wal
 reports/
 logs/
+*.log
+
+# Claude Code local state
+.claude/
 
 # IDE
 .vscode/

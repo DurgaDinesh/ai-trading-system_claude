@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}Live Dashboard{% endblock %}
+{% block content %}
+<div class="app">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <span>🎯</span> NiftySniper
+    </div>
+    <ul class="nav-links">
+      <li class="active"><a href="/">📊 Dashboard</a></li>
+      <li><a href="#positions">📂 Positions</a></li>
+      <li><a href="#trades">📋 Trade Journal</a></li>
+      <li><a href="#performance">📈 Performance</a></li>
+      <li><a href="/logout">🚪 Logout</a></li>
+    </ul>
+    <div class="mode-badge {{ 'badge-live' if mode == 'live' else 'badge-paper' }}">
+      {{ mode.upper() }} MODE
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main class="main-content">
+
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="status-dot {{ 'dot-red' if paused or daily_stats.is_halted else 'dot-green' }}"></span>
+        {% if daily_stats.is_halted %}
+          <span class="status-text text-red">HALTED</span>
+        {% elif paused %}
+          <span class="status-text text-yellow">PAUSED</span>
+        {% else %}
+          <span class="status-text text-green">RUNNING</span>
+        {% endif %}
+        <span class="topbar-time" id="clock">{{ generated_at }}</span>
+      </div>
+      <div class="topbar-controls">
+        {% if not paused and not daily_stats.is_halted %}
+        <button class="btn btn-warning" onclick="controlBot('pause')">⏸ Pause</button>
+        {% else %}
+        <button class="btn btn-success" onclick="controlBot('resume')">▶ Resume</button>
+        {% endif %}
+        <button class="btn btn-danger" onclick="confirmEmergencyStop()">🛑 Emergency Stop</button>
+      </div>
+    </header>
+
+    <!-- P&L Cards -->
+    <section class="cards-grid">
+      <div class="card {{ 'card-green' if daily_stats.total_daily_pnl >= 0 else 'card-red' }}">
+        <div class="card-label">Today's P&L</div>
+        <div class="card-value">₹{{ "%.2f"|format(daily_stats.total_daily_pnl) }}</div>
+        <div class="card-sub">Realized: ₹{{ "%.2f"|format(daily_stats.daily_realized_pnl) }}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Open Positions</div>
+        <div class="card-value">{{ daily_stats.open_positions }}</div>
+        <div class="card-sub">Max: {{ 3 }}</div>
+      </div>
+      <div class="card {{ 'card-green' if performance.win_rate and performance.win_rate >= 0.60 else 'card-yellow' }}">
+        <div class="card-label">Win Rate</div>
+        <div class="card-value">{{ "%.1f"|format((performance.win_rate or 0) * 100) }}%</div>
+        <div class="card-sub">Target: ≥60%</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Profit Factor</div>
+        <div class="card-value">{{ "%.2f"|format(performance.profit_factor or 0) }}</div>
+        <div class="card-sub">Target: ≥1.5</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Total Trades</div>
+        <div class="card-value">{{ performance.total_trades or 0 }}</div>
+        <div class="card-sub">Today: {{ trades_today | length }}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Sharpe Ratio</div>
+        <div class="card-value">{{ "%.2f"|format(performance.sharpe_approx or 0) }}</div>
+        <div class="card-sub">Target: ≥1.0</div>
+      </div>
+    </section>
+
+    <!-- Open Positions -->
+    <section class="section" id="positions">
+      <h2 class="section-title">Open Positions <span class="badge" id="positions-count">{{ daily_stats.open_positions }}</span></h2>
+      <div class="table-container">
+        <table class="data-table" id="positions-table">
+          <thead>
+            <tr>
+              <th>Instrument</th><th>Direction</th><th>Entry</th>
+              <th>Current</th><th>SL</th><th>TP1</th><th>Unrealized P&L</th>
+              <th>Score</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="positions-body">
+            <tr><td colspan="9" class="empty-row">Loading positions...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- P&L Chart -->
+    <section class="section">
+      <h2 class="section-title">Cumulative P&L</h2>
+      <div class="chart-container">
+        <canvas id="pnlChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Trade Journal -->
+    <section class="section" id="trades">
+      <h2 class="section-title">Today's Trade Journal</h2>
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Trade ID</th><th>Instrument</th><th>Dir</th><th>Entry</th>
+              <th>Exit</th><th>P&L</th><th>Exit Reason</th><th>Score</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in trades_today %}
+            <tr class="{{ 'row-win' if t.net_pnl and t.net_pnl > 0 else 'row-loss' if t.net_pnl and t.net_pnl < 0 else '' }}">
+              <td><code>{{ t.trade_id[-12:] }}</code></td>
+              <td>{{ t.instrument }}</td>
+              <td><span class="badge {{ 'badge-ce' if t.option_type == 'CE' else 'badge-pe' }}">{{ t.option_type }}</span></td>
+              <td>₹{{ "%.2f"|format(t.entry_price or 0) }}</td>
+              <td>{{ "₹%.2f"|format(t.exit_price) if t.exit_price else "OPEN" }}</td>
+              <td class="{{ 'text-green' if t.net_pnl and t.net_pnl > 0 else 'text-red' }}">
+                {{ "₹%+.2f"|format(t.net_pnl) if t.net_pnl is not none else "—" }}
+              </td>
+              <td>{{ t.exit_reason or "—" }}</td>
+              <td>{{ "%.0f"|format(t.composite_score) if t.composite_score else "—" }}</td>
+              <td><span class="status-badge status-{{ t.status.value.lower() if t.status else 'unknown' }}">{{ t.status.value if t.status else "—" }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" class="empty-row">No trades today</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Mode Switch -->
+    <section class="section" id="mode-switch">
+      <h2 class="section-title">Trading Mode</h2>
+      <div class="mode-switch-card">
+        <p>Current mode: <strong>{{ mode.upper() }}</strong></p>
+        {% if mode == 'paper' %}
+        <p class="text-muted">Switch to LIVE only after meeting all escalation criteria and entering your PIN.</p>
+        <form method="POST" action="/api/set_mode" onsubmit="return confirmLiveSwitch()">
+          <input type="hidden" name="mode" value="live"/>
+          <div class="form-group">
+            <label>Enter 6-Digit PIN to Activate Live Trading</label>
+            <input type="password" name="pin" maxlength="6" placeholder="••••••" required/>
+          </div>
+          <button type="submit" class="btn btn-danger">🔴 Switch to LIVE MODE</button>
+        </form>
+        {% else %}
+        <form method="POST" action="/api/set_mode">
+          <input type="hidden" name="mode" value="paper"/>
+          <input type="hidden" name="pin" value="000000"/>
+          <button type="submit" class="btn btn-warning">📄 Switch Back to PAPER MODE</button>
+        </form>
+        {% endif %}
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+const MODE = "{{ mode }}";
+
+async function controlBot(action) {
+  const resp = await fetch(`/api/${action}`, {method: "POST"});
+  if (resp.ok) location.reload();
+}
+
+async function confirmEmergencyStop() {
+  if (!confirm("🛑 EMERGENCY STOP: This will close ALL open positions immediately. Confirm?")) return;
+  const resp = await fetch("/api/emergency_stop", {method: "POST"});
+  const data = await resp.json();
+  alert(data.message || "Emergency stop executed");
+  location.reload();
+}
+
+function confirmLiveSwitch() {
+  return confirm("⚠️ WARNING: You are about to switch to LIVE trading with REAL money. This is irreversible until you manually switch back. Confirm?");
+}
+
+// Auto-refresh positions every 10 seconds
+setInterval(refreshPositions, 10000);
+async function refreshPositions() {
+  const resp = await fetch("/api/positions");
+  const positions = await resp.json();
+  document.getElementById("positions-count").textContent = positions.length;
+  const tbody = document.getElementById("positions-body");
+  if (positions.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-row">No open positions</td></tr>';
+    return;
+  }
+  tbody.innerHTML = positions.map(p => `
+    <tr>
+      <td><code>${p.instrument}</code></td>
+      <td><span class="badge ${p.direction === 'CE' ? 'badge-ce' : 'badge-pe'}">${p.direction}</span></td>
+      <td>₹${(p.entry_price || 0).toFixed(2)}</td>
+      <td>—</td>
+      <td>₹${(p.stop_loss || 0).toFixed(2)}</td>
+      <td>₹${(p.tp1 || 0).toFixed(2)}</td>
+      <td>—</td>
+      <td>${(p.score || 0).toFixed(0)}</td>
+      <td><button class="btn btn-sm btn-danger" onclick="cancelTrade('${p.trade_id}')">Close</button></td>
+    </tr>
+  `).join("");
+}
+
+async function cancelTrade(tradeId) {
+  if (!confirm(`Close trade ${tradeId}?`)) return;
+  await fetch(`/api/cancel_trade/${tradeId}`, { method: "POST" });
+  refreshPositions();
+}
+
+// Live clock
+setInterval(() => {
+  document.getElementById("clock").textContent = new Date().toLocaleString("en-IN", {timeZone: "Asia/Kolkata"});
+}, 1000);
+
+refreshPositions();
+</script>
+{% endblock %}

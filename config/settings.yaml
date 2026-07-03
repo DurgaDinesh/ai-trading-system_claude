@@ -1,0 +1,222 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# ALGO TRADING SYSTEM — MASTER CONFIGURATION
+# All monetary values in INR. Edit this file to tune strategy parameters.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+system:
+  name: "NiftySniper"
+  version: "1.0.0"
+  mode: "paper"                  # "paper" | "live"  (human must approve live switch)
+  log_level: "INFO"              # DEBUG | INFO | WARNING | ERROR
+  timezone: "Asia/Kolkata"
+
+# ── Capital & Risk ─────────────────────────────────────────────────────────────
+capital:
+  total: 500000                  # ₹5,00,000
+  max_per_trade_pct: 0.05        # 5% → ₹25,000
+  max_daily_loss_pct: 0.02       # 2% → ₹10,000  (auto-halt if breached)
+  max_open_positions: 3
+  risk_per_trade_pct: 0.01       # 1% risk per position
+  vix_size_reduction_threshold: 20.0   # If VIX > 20, cut size by 50%
+  vix_size_reduction_factor: 0.50
+
+# ── Instruments ────────────────────────────────────────────────────────────────
+instruments:
+  primary:
+    name: "NIFTY"
+    exchange: "NFO"
+    type: "weekly_options"
+    expiry_day: "Thursday"
+    lot_size: 75          # NOTE: verify against Kite instrument master before going live — lot sizes change periodically
+    strike_interval: 50
+  secondary:
+    name: "BANKNIFTY"
+    exchange: "NFO"
+    type: "weekly_options"
+    expiry_day: "Wednesday"
+    lot_size: 35          # NOTE: verify against Kite instrument master before going live — lot sizes change periodically
+    strike_interval: 100
+  tertiary:
+    - { name: "GOLDM", exchange: "MCX" }
+    - { name: "SILVERM", exchange: "MCX" }
+  underlying_index:
+    NIFTY: "NSE:NIFTY 50"
+    BANKNIFTY: "NSE:NIFTY BANK"
+
+# ── Session Rules ──────────────────────────────────────────────────────────────
+session:
+  market_open: "09:15"
+  market_close: "15:30"
+  auto_squareoff_time: "15:10"         # Force-close all positions
+  observation_window_end: "09:30"      # No trades before this
+  pre_market_analysis_time: "09:00"
+  daily_report_time: "15:30"
+  weekly_report_day: "Friday"
+  weekly_report_time: "16:00"
+  allowed_trading_days: [1, 2, 3, 4]  # Mon=1 Thu=4 (Friday = 5, avoided)
+  avoid_thursday_positional: true       # No new positional on expiry day
+
+# ── Indicator Parameters ───────────────────────────────────────────────────────
+indicators:
+  ema:
+    periods: [9, 21, 50, 200]
+  rsi:
+    period: 14
+    overbought: 70
+    oversold: 30
+    bullish_crossover: 60         # RSI crosses above this → bullish
+    bearish_crossover: 40
+  macd:
+    fast: 12
+    slow: 26
+    signal: 9
+  atr:
+    period: 14
+  supertrend:
+    period: 10
+    multiplier: 3.0
+  vwap:
+    enabled: true
+  bb:                             # Bollinger Bands (optional context)
+    period: 20
+    std_dev: 2.0
+  stochastic:
+    k_period: 14
+    d_period: 3
+    smooth: 3
+
+# ── Signal Engine ──────────────────────────────────────────────────────────────
+signals:
+  min_confluence: 3              # Minimum indicators that must align
+  min_composite_score: 65        # 0–100 score threshold
+  min_rr_ratio: 1.5              # Minimum Risk:Reward required
+  tp_allocation:                 # % to book at each TP
+    tp1: 0.40
+    tp2: 0.35
+    tp3: 0.25
+  sl_premium_pct: 0.30           # SL = entry option premium × (1 − 0.30)
+  tp_premium_pct:                # TP = entry option premium × (1 + pct)
+    tp1: 0.45                    # R:R = 0.45/0.30 = 1.5, matches min_rr_ratio below
+    tp2: 0.80
+    tp3: 1.20
+  signal_validity_minutes: 5     # Signal expires if not acted on
+
+# ── Options Analytics ──────────────────────────────────────────────────────────
+options:
+  pcr_bullish_threshold: 1.0     # PCR > 1.0 → bullish
+  pcr_bearish_threshold: 0.7     # PCR < 0.7 → bearish
+  iv_high_threshold: 20.0        # High IV → wider ATR-based SL
+  max_pain_deviation_pct: 1.0    # Price within 1% of max pain → caution
+  preferred_strike_otm_pct: 0.5  # Buy 0.5% OTM from ATM
+  strike_selection: "ATM_PLUS_1" # ATM | ATM_PLUS_1 | ATM_PLUS_2
+  # Used only when no live Kite session is available (paper mode without a
+  # broker login) to estimate a synthetic option chain via Black-Scholes.
+  risk_free_rate: 0.07           # Approx. Indian risk-free rate
+  synthetic_iv: 0.15             # Assumed flat IV — real chain data is always preferred
+
+# ── Global Market Filters ──────────────────────────────────────────────────────
+global_market:
+  gift_nifty_gap_bullish_pct: 0.3    # Gap up > 0.3% → bullish
+  gift_nifty_gap_bearish_pct: -0.3
+  dxy_inverse_threshold: 0.2          # DXY move > 0.2% signals Nifty impact
+  crude_impact_pct: 1.0               # Crude move > 1% → monitor
+  vix_extreme_low: 11.0               # VIX < 11 → complacency warning
+  vix_extreme_high: 25.0              # VIX > 25 → high risk, avoid
+
+# ── News Sentiment ─────────────────────────────────────────────────────────────
+news:
+  update_interval_minutes: 30
+  sentiment_min_score: 0.6       # Min confidence to use sentiment signal
+  sources:
+    rss:
+      - "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"
+      - "https://www.moneycontrol.com/rss/MCtopnews.xml"
+      - "https://feeds.feedburner.com/ndtvprofit-latest"
+    nse_announcements: true
+  negative_keywords:
+    - "crash"
+    - "circuit breaker"
+    - "ban"
+    - "sebi order"
+    - "RBI rate hike"
+    - "sanctions"
+    - "war"
+    - "pandemic"
+    - "lockdown"
+
+# ── Adaptive Weights (Self-Learning Phase 1) ───────────────────────────────────
+adaptive_weights:
+  initial:
+    ema_stack: 0.20
+    rsi: 0.15
+    macd: 0.15
+    vwap: 0.15
+    oi_analysis: 0.15
+    pcr: 0.10
+    global_market: 0.10
+  adjustment_step: 0.02          # Adjust by ±0.02 per trade outcome
+  min_weight: 0.05
+  max_weight: 0.40
+  rebalance_every_n_trades: 10   # Normalize weights every N trades
+
+# ── ML Scorer (Self-Learning Phase 2) ─────────────────────────────────────────
+ml_scorer:
+  activate_after_n_trades: 100   # Enable ML scoring after 100 trades
+  model_type: "xgboost"          # xgboost | random_forest
+  retrain_every_n_trades: 50
+  min_train_samples: 100
+  feature_window_days: 90        # Use last 90 days for training
+  confidence_blend_weight: 0.4   # 40% ML + 60% rule-based when active
+
+# ── Live Trading Escalation ────────────────────────────────────────────────────
+paper_to_live:
+  min_paper_trades: 20
+  min_win_rate: 0.60             # 60%
+  min_profit_factor: 1.5
+  max_single_loss_pct: 0.03      # Max 3% in any single trade
+  min_sharpe_ratio: 1.0
+  require_human_approval: true   # Bot NEVER goes live without human toggle
+
+# ── Security ───────────────────────────────────────────────────────────────────
+security:
+  pin_required_for_live: true
+  jwt_expiry_hours: 8
+  max_orders_per_minute: 5
+  anomaly_order_size_multiplier: 2.0  # Flag if order > 2x average
+  ip_whitelist_enabled: false          # Set to true in production
+
+# ── Human Approval Workflow ────────────────────────────────────────────────────
+approval:
+  telegram_approval_enabled: true
+  approval_timeout_seconds: 60    # Auto-skip if no response in 60s
+  auto_execute_on_timeout: true   # true = paper trades auto-execute after timeout
+
+# ── Backtesting ────────────────────────────────────────────────────────────────
+backtesting:
+  default_start_date: "2022-01-01"
+  default_end_date: "2024-01-01"
+  initial_capital: 500000
+  commission_pct: 0.0003          # 0.03% per leg (Zerodha options)
+  slippage_pct: 0.001             # 0.1% slippage assumption
+  walk_forward_window_days: 90
+  walk_forward_test_days: 30
+  # The backtest simulates directly on the underlying index price (not a real
+  # option premium reconstruction), so it uses its own ATR-multiple SL/TP —
+  # these are NOT the same as signals.sl_premium_pct/tp_premium_pct, which
+  # apply to the real option premium in live/paper trading.
+  sl_atr: 1.5
+  tp1_atr: 2.5
+  tp2_atr: 4.0
+
+# ── Database ───────────────────────────────────────────────────────────────────
+database:
+  url: "sqlite:///data/trading.db"   # Switch to postgresql://... for prod
+  echo: false                         # Set true for SQL debug logs
+  pool_size: 5
+
+# ── Dashboard ──────────────────────────────────────────────────────────────────
+dashboard:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  secret_key_env: "DASHBOARD_SECRET_KEY"

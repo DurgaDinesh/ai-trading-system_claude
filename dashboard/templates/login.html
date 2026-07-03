@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block content %}
+<div class="login-container">
+  <div class="login-card">
+    <div class="logo">
+      <span class="logo-icon">🎯</span>
+      <h1>NiftySniper</h1>
+      <p class="subtitle">Algo Trading Dashboard</p>
+    </div>
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    <form method="POST" action="/login">
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" name="username" placeholder="admin" required/>
+      </div>
+      <div class="form-group">
+        <label>6-Digit Trading PIN</label>
+        <input type="password" name="pin" maxlength="6" placeholder="••••••" required/>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">Login</button>
+    </form>
+    <p class="login-footer">JWT session expires in 8 hours</p>
+  </div>
+</div>
+{% endblock %}

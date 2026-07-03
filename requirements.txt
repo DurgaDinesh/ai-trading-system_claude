@@ -1,0 +1,66 @@
+# ── Core ──────────────────────────────────────────────────────────────────────
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# ── Broker SDK ────────────────────────────────────────────────────────────────
+kiteconnect==5.0.1
+
+# ── Data & Analysis ───────────────────────────────────────────────────────────
+pandas==2.1.4
+numpy==1.26.3
+pandas-ta==0.3.14b0
+yfinance==0.2.36
+requests==2.31.0
+feedparser==6.0.11
+
+# ── Technical Analysis (TA-Lib - install separately via wheel) ────────────────
+# ta-lib==0.4.28  # Download wheel from: https://github.com/cgohlke/talib-build
+
+# ── Machine Learning ──────────────────────────────────────────────────────────
+scikit-learn==1.4.0
+xgboost==2.0.3
+joblib==1.3.2
+
+# ── NLP Sentiment ─────────────────────────────────────────────────────────────
+transformers==4.37.2
+torch==2.1.2
+anthropic==0.21.3
+
+# ── Database ──────────────────────────────────────────────────────────────────
+sqlalchemy==2.0.25
+alembic==1.13.1
+
+# ── Dashboard (FastAPI) ───────────────────────────────────────────────────────
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+jinja2==3.1.3
+python-multipart==0.0.7
+aiofiles==23.2.1
+
+# ── Security ──────────────────────────────────────────────────────────────────
+cryptography==42.0.2
+bcrypt==4.1.2
+PyJWT==2.8.0
+passlib[bcrypt]==1.7.4
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+python-telegram-bot==20.7
+
+# ── Scheduler ─────────────────────────────────────────────────────────────────
+APScheduler==3.10.4
+
+# ── Backtesting ───────────────────────────────────────────────────────────────
+backtesting==0.3.3
+vectorbt==0.26.1
+
+# ── Reporting ─────────────────────────────────────────────────────────────────
+reportlab==4.1.0
+matplotlib==3.8.2
+seaborn==0.13.2
+openpyxl==3.1.2
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+pytz==2024.1
+python-dateutil==2.8.2
+tenacity==8.2.3
+structlog==24.1.0

@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  niftysniper:
+    build: .
+    container_name: niftysniper
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      - ./config/.env:/app/config/.env:ro
+    env_file:
+      - config/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Asia/Kolkata
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/status"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # Uncomment for PostgreSQL production database
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: niftysniper-db
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: algotrading
+  #     POSTGRES_USER: trader
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+volumes:
+  postgres_data:
