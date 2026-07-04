@@ -64,3 +64,4 @@ pytz==2024.1
 python-dateutil==2.8.2
 tenacity==8.2.3
 structlog==24.1.0
+pytest==9.0.3
