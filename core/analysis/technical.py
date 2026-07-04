@@ -215,6 +215,49 @@ def get_supertrend_signal(df: pd.DataFrame) -> int:
     return 1 if val == -1 else -1   # dir=-1 means price above ST (bullish)
 
 
+def get_bollinger_signal(df: pd.DataFrame, squeeze_lookback: int = 20) -> int:
+    """
+    1 if close breaks above bb_upper following a bandwidth squeeze,
+    -1 if it breaks below bb_lower following a squeeze, else 0.
+    Reads columns already produced by compute_all() — no new indicator math.
+    """
+    required = {"close", "bb_upper", "bb_lower", "bb_width"}
+    if not required.issubset(df.columns) or len(df) < squeeze_lookback + 1:
+        return 0
+    close = df["close"].iloc[-1]
+    bb_upper = df["bb_upper"].iloc[-1]
+    bb_lower = df["bb_lower"].iloc[-1]
+    width_now = df["bb_width"].iloc[-1]
+    width_recent_min = df["bb_width"].iloc[-(squeeze_lookback + 1):-1].min()
+    was_squeezed = width_now <= width_recent_min * 1.1
+    if not was_squeezed:
+        return 0
+    if close > bb_upper:
+        return 1
+    if close < bb_lower:
+        return -1
+    return 0
+
+
+def get_stochastic_signal(df: pd.DataFrame) -> int:
+    """
+    1 if %K crosses above %D coming from oversold (prev %K < 20), -1 if %K
+    crosses below %D coming from overbought (prev %K > 80), else 0.
+    """
+    required = {"stoch_k", "stoch_d"}
+    if not required.issubset(df.columns) or len(df) < 2:
+        return 0
+    k, d = df["stoch_k"].iloc[-1], df["stoch_d"].iloc[-1]
+    prev_k, prev_d = df["stoch_k"].iloc[-2], df["stoch_d"].iloc[-2]
+    crossed_up = prev_k <= prev_d and k > d
+    crossed_down = prev_k >= prev_d and k < d
+    if crossed_up and prev_k < 20:
+        return 1
+    if crossed_down and prev_k > 80:
+        return -1
+    return 0
+
+
 def compute_premium_levels(entry_premium: float, cfg: dict) -> dict:
     """
     Calculate SL/TP levels as a percentage move of the option premium itself.
