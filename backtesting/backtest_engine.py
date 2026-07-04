@@ -12,6 +12,7 @@ import pandas as pd
 import structlog
 import yaml
 
+from backtesting.simulation import simulate_signals
 from core.market_data.historical import fetch_historical_yfinance
 from core.analysis.technical import compute_all, get_ema_stack_signal, get_rsi_signal, get_macd_signal, get_vwap_signal
 
@@ -111,166 +112,26 @@ def run_backtest(
     signals = _generate_signals(df)
     sl_series, tp1_series, tp2_series = _apply_atr_levels(df, signals)
 
-    # Simple simulation loop (vectorbt alternative for portability)
-    tp1_alloc = _cfg["signals"]["tp_allocation"]["tp1"]
-    capital = initial_capital
-    trades = []
-    in_trade = False
-    entry_price = 0.0
-    entry_idx = None
-    entry_sl = 0.0
-    entry_tp1 = 0.0
-    entry_tp2 = 0.0
-    direction = 0
-    tp1_booked = False
-    remaining_fraction = 1.0
-
-    # A signal on bar i can only be filled at bar i+1's open — the earliest
-    # realistic execution point — never at the same bar's own close.
-    pending_direction = None
-    pending_sl = pending_tp1 = pending_tp2 = 0.0
-
-    for i in range(len(df)):
-        row = df.iloc[i]
-        close = row["close"]
-        idx = df.index[i]
-
-        if pending_direction is not None and not in_trade:
-            direction = pending_direction
-            entry_price = row["open"] * (1 + slippage if direction == 1 else 1 - slippage)
-            entry_sl = pending_sl
-            entry_tp1 = pending_tp1
-            entry_tp2 = pending_tp2
-            entry_idx = idx
-            in_trade = True
-            tp1_booked = False
-            remaining_fraction = 1.0
-            pending_direction = None
-
-        if in_trade:
-            # Check exit conditions
-            tp1_hit = close >= entry_tp1 if direction == 1 else close <= entry_tp1
-            tp2_hit = close >= entry_tp2 if direction == 1 else close <= entry_tp2
-            sl_hit = close <= entry_sl if direction == 1 else close >= entry_sl
-            base_qty = capital * _cfg["capital"]["max_per_trade_pct"] / entry_price
-
-            if sl_hit:
-                fill = entry_sl * (1 - slippage if direction == 1 else 1 + slippage)
-                pnl = (fill - entry_price) * direction
-                gross = pnl * remaining_fraction * base_qty
-                net = gross - gross * commission * 2
-                trades.append({
-                    "entry_idx": entry_idx, "exit_idx": idx,
-                    "direction": direction, "entry": entry_price, "exit": fill,
-                    "pnl": net, "exit_reason": "SL",
-                })
-                capital += net
-                in_trade = False
-
-            elif tp2_hit:
-                fill = entry_tp2 * (1 - slippage if direction == 1 else 1 + slippage)
-                pnl = (fill - entry_price) * direction
-                gross = pnl * remaining_fraction * base_qty
-                net = gross - gross * commission * 2
-                trades.append({
-                    "entry_idx": entry_idx, "exit_idx": idx,
-                    "direction": direction, "entry": entry_price, "exit": fill,
-                    "pnl": net, "exit_reason": "TP2",
-                })
-                capital += net
-                in_trade = False
-
-            elif tp1_hit and not tp1_booked:
-                # Book the configured TP1 fraction once, move SL to breakeven,
-                # and leave the rest of the position open.
-                tp1_booked = True
-                entry_sl = entry_price   # Trail SL to BE
-                fill = entry_tp1
-                pnl = (fill - entry_price) * direction
-                gross = pnl * tp1_alloc * base_qty
-                net = gross - gross * commission
-                capital += net
-                remaining_fraction -= tp1_alloc
-
-        elif signals.iloc[i] != 0 and not pd.isna(sl_series.iloc[i]) and pending_direction is None:
-            # Queue entry for the next bar's open (no same-bar lookahead fill)
-            pending_direction = int(signals.iloc[i])
-            pending_sl = sl_series.iloc[i]
-            pending_tp1 = tp1_series.iloc[i]
-            pending_tp2 = tp2_series.iloc[i]
-
-    # Compute performance metrics
-    if not trades:
+    period_days = max((end - start).days, 1)
+    sim = simulate_signals(df, signals, sl_series, tp1_series, tp2_series,
+                           initial_capital, period_days)
+    if sim["total_trades"] == 0:
         return {
             "symbol": symbol, "period": f"{start} → {end}", "total_trades": 0,
             "error": "No trades generated — check indicator parameters",
         }
-
-    pnls = [t["pnl"] for t in trades]
-    wins = [p for p in pnls if p > 0]
-    losses = [p for p in pnls if p <= 0]
-    gross_wins = sum(wins) if wins else 0
-    gross_losses = abs(sum(losses))
-    if gross_losses > 0:
-        profit_factor = gross_wins / gross_losses
-    else:
-        profit_factor = float("inf") if gross_wins > 0 else 0.0
-
-    cumulative = np.cumsum(pnls)
-    running_max = np.maximum.accumulate(cumulative)
-    drawdowns = running_max - cumulative
-    max_drawdown = float(np.max(drawdowns)) if len(drawdowns) else 0
-
-    # Annualize using this backtest's actual trade frequency, not a fixed
-    # 252-trading-day assumption — an intraday options system can take
-    # several trades per day, which sqrt(252) would badly understate.
-    period_days = max((end - start).days, 1)
-    trades_per_year = len(pnls) / period_days * 365.25
-    annualization = trades_per_year ** 0.5
-
-    if len(pnls) > 1:
-        import statistics
-        mean_pnl = statistics.mean(pnls)
-        std_pnl = statistics.stdev(pnls)
-        sharpe = (mean_pnl / std_pnl) * annualization if std_pnl else 0
-    else:
-        sharpe = 0
-
-    sortino_losses = [p for p in pnls if p < 0]
-    if sortino_losses and len(sortino_losses) > 1:
-        import statistics
-        sortino_std = statistics.stdev(sortino_losses)
-        sortino = (statistics.mean(pnls) / sortino_std) * annualization if sortino_std else 0
-    else:
-        sortino = 0
 
     result = {
         "symbol": symbol,
         "period": f"{start} → {end}",
         "interval": interval,
         "initial_capital": initial_capital,
-        "final_capital": round(capital, 2),
-        "total_return_pct": round((capital - initial_capital) / initial_capital * 100, 2),
-        "total_trades": len(trades),
-        "winning_trades": len(wins),
-        "losing_trades": len(losses),
-        "win_rate": round(len(wins) / len(trades), 3),
-        "profit_factor": round(profit_factor, 3),
-        "total_net_pnl": round(sum(pnls), 2),
-        "avg_pnl_per_trade": round(sum(pnls) / len(pnls), 2),
-        "max_win": round(max(pnls), 2),
-        "max_loss": round(min(pnls), 2),
-        "max_drawdown": round(max_drawdown, 2),
-        "max_drawdown_pct": round(max_drawdown / initial_capital * 100, 2),
-        "sharpe_ratio": round(sharpe, 3),
-        "sortino_ratio": round(sortino, 3),
-        "trades": trades,
-        "pnl_curve": cumulative.tolist(),
+        **sim,
     }
 
     logger.info(
         "backtest_complete",
-        trades=len(trades), win_rate=result["win_rate"],
+        trades=result["total_trades"], win_rate=result["win_rate"],
         sharpe=result["sharpe_ratio"], pnl=result["total_net_pnl"],
     )
     return result
