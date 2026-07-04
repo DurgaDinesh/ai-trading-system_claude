@@ -151,3 +151,24 @@ class MLModelMetric(Base):
     f1_score = Column(Float)
     feature_importances = Column(JSON)
     model_path = Column(String(200))
+
+
+class StrategyRanking(Base):
+    """One row per strategy per tournament run (weekly)."""
+    __tablename__ = "strategy_rankings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    strategy_name = Column(String(60), nullable=False)
+    category = Column(String(30))
+    period_start = Column(DateTime)
+    period_end = Column(DateTime)
+    win_rate = Column(Float, default=0.0)
+    profit_factor = Column(Float, default=0.0)
+    sharpe_approx = Column(Float, default=0.0)
+    max_drawdown = Column(Float, default=0.0)
+    opportunity_capture_rate = Column(Float, default=0.0)  # wired by Plan 3
+    composite_score = Column(Float, default=0.0)
+    rank = Column(Integer)                                  # 1 = best; NULL if not ranked
+    promoted = Column(Boolean, default=False)
+    status = Column(String(20), default="ranked")           # ranked | insufficient_data | errored

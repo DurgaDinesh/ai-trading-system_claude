@@ -220,3 +220,21 @@ dashboard:
   port: 8000
   debug: false
   secret_key_env: "DASHBOARD_SECRET_KEY"
+
+# ── Strategy Tournament (Plan 2) ───────────────────────────────────────────────
+strategy_tournament:
+  enabled: true
+  run_day: "sunday"                     # scheduler wiring is Plan 4
+  backtest_lookback_days: 180
+  backtest_interval: "1h"               # yfinance intraday history limit ~730d at 1h
+  min_backtest_trades_for_ranking: 15
+  promote_top_n: 3
+  score_weights:                        # must sum to 1.0
+    profit_factor: 0.35
+    sharpe: 0.25
+    win_rate: 0.20
+    max_drawdown: 0.20                  # inverted: lower drawdown scores higher
+  profit_factor_cap: 10.0               # inf/huge PF capped before normalization
+  missed_opportunity:                   # consumed by Plan 3
+    enabled: true
+    min_move_pct_threshold: 0.5
