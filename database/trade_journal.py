@@ -191,26 +191,20 @@ class TradeJournal:
         if not trades:
             return {}
 
-        wins = [t for t in trades if t.net_pnl > 0]
-        losses = [t for t in trades if t.net_pnl <= 0]
-        pnls = [t.net_pnl for t in trades]
-        gross_wins = sum(t.net_pnl for t in wins) if wins else 0
-        gross_losses = abs(sum(t.net_pnl for t in losses))
-        if gross_losses > 0:
-            profit_factor = gross_wins / gross_losses
-        else:
-            profit_factor = float("inf") if gross_wins > 0 else 0.0
+        from core.learning.metrics import compute_trade_metrics
 
+        pnls = [t.net_pnl for t in trades]
+        m = compute_trade_metrics(pnls)  # sharpe comes from _approx_sharpe below
         return {
-            "total_trades": len(trades),
-            "win_rate": len(wins) / len(trades),
-            "profit_factor": profit_factor,
-            "total_net_pnl": sum(pnls),
-            "avg_pnl_per_trade": sum(pnls) / len(pnls),
-            "max_win": max(pnls),
-            "max_loss": min(pnls),
-            "avg_win": gross_wins / len(wins) if wins else 0,
-            "avg_loss": (gross_losses / len(losses)) * -1 if losses else 0,
+            "total_trades": m["total_trades"],
+            "win_rate": m["win_rate"],
+            "profit_factor": m["profit_factor"],
+            "total_net_pnl": m["total_net_pnl"],
+            "avg_pnl_per_trade": m["avg_pnl_per_trade"],
+            "max_win": m["max_win"],
+            "max_loss": m["max_loss"],
+            "avg_win": m["avg_win"],
+            "avg_loss": m["avg_loss"],
             "sharpe_approx": _approx_sharpe(trades),
         }
 
@@ -220,19 +214,16 @@ def _approx_sharpe(trades: list) -> float:
     Annualizes using this trade set's own actual frequency (trades per trading
     day, scaled to 252 trading days/year) rather than assuming one trade per
     day — this is an intraday system that can take several trades per day.
+    Math lives in core.learning.metrics; only the annualization convention
+    (252 trading days) is chosen here.
     """
+    from core.learning.metrics import annualization_from_span, compute_trade_metrics
+
     pnls = [t.net_pnl for t in trades]
-    if len(pnls) < 2:
-        return 0.0
-    import statistics
-    mean = statistics.mean(pnls)
-    std = statistics.stdev(pnls)
-    if not std:
-        return 0.0
     timestamps = [t.entry_time or t.created_at for t in trades if t.entry_time or t.created_at]
     span_days = max((max(timestamps) - min(timestamps)).days, 1) if timestamps else 1
-    trades_per_year = len(pnls) / span_days * 252
-    return (mean / std) * (trades_per_year ** 0.5)
+    ann = annualization_from_span(len(pnls), span_days, days_per_year=252)
+    return compute_trade_metrics(pnls, annualization=ann)["sharpe"]
 
 
 journal = TradeJournal()
