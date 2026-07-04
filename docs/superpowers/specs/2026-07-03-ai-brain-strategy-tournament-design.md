@@ -38,7 +38,10 @@ extend the execution engine. This keeps every strategy compatible with the exist
 
 - `core/strategies/base.py` — abstract `Strategy` base class:
   - `name: str`, `category: str` (trend / mean_reversion / breakout / volatility / flow)
-  - `generate_signal(market_ctx: MarketContext) -> TradeSignal` — reuses the existing
+  - `generate_signal(df, regime, options_context, global_context, news_sentiment, now=None) -> TradeSignal`
+    — same explicit params as the existing `signal_engine.generate_signal` (no
+    separate `MarketContext` type), so both call sites share one shape. `df` must
+    already be enriched via `compute_all()` by the caller. Reuses the existing
     `TradeSignal` dataclass from `signal_engine.py`, with `strategy` field set to the
     archetype's name (that field already exists and is currently just informational).
   - Strategies reuse existing indicator/data functions from `core/analysis/` — they
@@ -63,12 +66,16 @@ extend the execution engine. This keeps every strategy compatible with the exist
   12. FII/DII Flow Following
   13. News Sentiment Momentum
   14. Global Cues Gap Trading (SGX/GIFT Nifty correlation)
-  15. Support/Resistance Breakout
-  16. Fibonacci Retracement Bounce
-  17. Volume Spike Confirmation
+  15. Stochastic Oscillator Reversal (%K/%D cross from oversold/overbought)
+  16. ATR Volatility Contraction Breakout (squeeze-then-expand)
+  17. Regime-Aligned Pullback (regime direction + RSI pullback entry)
   18. Multi-Timeframe Confluence (higher-TF trend + lower-TF entry)
   19. End-of-Day Momentum (last-hour continuation, respecting existing square-off rules)
   20. Options OI Buildup Direction (long buildup / short-covering signals)
+
+  (See `docs/superpowers/plans/2026-07-03-strategy-infrastructure.md` for why 15–17
+  were swapped — the original archetypes needed indicator math that doesn't exist in
+  `technical.py` and was out of scope to add.)
 
 ### 2. `backtesting/tournament.py` (new)
 
