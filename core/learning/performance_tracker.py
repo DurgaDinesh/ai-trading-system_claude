@@ -40,6 +40,18 @@ class PerformanceTracker:
         # Phase 1: Adaptive weight update
         update_weights_on_trade_close(indicators_triggered, is_win, trade_number)
 
+        # Per-strategy score learning (AI brain): nudge the closed trade's
+        # strategy in the latest tournament ranking. No-op for hardcoded-
+        # pipeline trades (their strategy field is a regime label, not an
+        # archetype), and never allowed to break the trade-close flow.
+        try:
+            trade = journal.get_trade(trade_id)
+            if trade and trade.strategy:
+                from core.learning.mistake_analyzer import update_strategy_score_on_trade_close
+                update_strategy_score_on_trade_close(trade.strategy, is_win)
+        except Exception as e:
+            logger.warning("strategy_score_update_failed", trade_id=trade_id, error=str(e))
+
         # Phase 2: Check if ML training should trigger
         if ml_scorer.should_train():
             logger.info("triggering_ml_retrain", n_trades=trade_number)
