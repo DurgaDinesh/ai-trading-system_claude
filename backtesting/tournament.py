@@ -82,9 +82,52 @@ def _minmax(values: list[float]) -> list[float]:
     return [(v - lo) / (hi - lo) for v in values]
 
 
-def compute_composite_scores(results: list[dict], weights: dict, pf_cap: float) -> list[dict]:
+def compute_opportunity_capture_rates(
+    period_start,
+    period_end,
+    session_factory=None,
+) -> dict[str, float]:
+    """Per-strategy share of the window's missed opportunities it would have caught."""
+    from database.models import MissedOpportunity
+
+    if session_factory is None:
+        from database.trade_journal import SessionLocal, init_db
+        init_db()
+        session_factory = SessionLocal
+    db = session_factory()
+    try:
+        rows = (
+            db.query(MissedOpportunity)
+            .filter(
+                MissedOpportunity.date >= period_start,
+                MissedOpportunity.date <= period_end,
+            )
+            .all()
+        )
+    finally:
+        db.close()
+    if not rows:
+        return {}
+    counts: dict[str, int] = {}
+    for row in rows:
+        for name in (row.would_have_matched or []):
+            counts[name] = counts.get(name, 0) + 1
+    total = len(rows)
+    return {name: c / total for name, c in counts.items()}
+
+
+def compute_composite_scores(
+    results: list[dict],
+    weights: dict,
+    pf_cap: float,
+    capture_weight: float = 0.0,
+) -> list[dict]:
     """Min-max normalize each metric across ranked strategies, blend by weights.
-    Drawdown is inverted (lower is better). Mutates and returns `results`."""
+
+    Drawdown is inverted (lower is better). When capture_weight > 0, the
+    missed-opportunity capture rate is blended in on top of the 4-metric
+    score: composite = (1 - cw) * four_metric_blend + cw * minmax(capture).
+    Mutates and returns `results`."""
     ranked = [r for r in results if r["status"] == "ranked"]
     if not ranked:
         return results
@@ -93,14 +136,16 @@ def compute_composite_scores(results: list[dict], weights: dict, pf_cap: float) 
     sharpes = _minmax([r["sharpe_approx"] for r in ranked])
     win_rates = _minmax([r["win_rate"] for r in ranked])
     drawdowns = _minmax([r["max_drawdown"] for r in ranked])
+    captures = _minmax([r.get("opportunity_capture_rate", 0.0) for r in ranked])
 
-    for r, pf, sh, wr, dd in zip(ranked, pfs, sharpes, win_rates, drawdowns):
-        r["composite_score"] = (
+    for r, pf, sh, wr, dd, cap in zip(ranked, pfs, sharpes, win_rates, drawdowns, captures):
+        base = (
             weights["profit_factor"] * pf
             + weights["sharpe"] * sh
             + weights["win_rate"] * wr
             + weights["max_drawdown"] * (1.0 - dd)
         )
+        r["composite_score"] = (1.0 - capture_weight) * base + capture_weight * cap
     return results
 
 
@@ -182,9 +227,14 @@ def run_tournament(
             logger.error("tournament_strategy_errored", strategy=strategy.name, error=str(e))
             results.append({**base, "status": "errored"})
 
+    capture_rates = compute_opportunity_capture_rates(period_start, period_end, session_factory)
+    for r in results:
+        r["opportunity_capture_rate"] = round(capture_rates.get(r["strategy_name"], 0.0), 3)
+
     weights = t_cfg["score_weights"]
     pf_cap = t_cfg.get("profit_factor_cap", 10.0)
-    compute_composite_scores(results, weights, pf_cap)
+    capture_weight = t_cfg.get("opportunity_capture_weight", 0.0)
+    compute_composite_scores(results, weights, pf_cap, capture_weight=capture_weight)
 
     ranked = sorted(
         [r for r in results if r["status"] == "ranked"],
