@@ -308,6 +308,60 @@ def job_ml_retrain_check():
         logger.error("ml_retrain_check_failed", error=str(e))
 
 
+def job_weekly_tournament():
+    """Weekly (run_day, default Sunday) — rank all strategies, promote top N."""
+    if not _cfg.get("strategy_tournament", {}).get("enabled", False):
+        return
+    try:
+        from backtesting.tournament import run_tournament
+        from notifications.telegram_bot import telegram
+
+        results = run_tournament()
+        ranked = [r for r in results if r.get("status") == "ranked"]
+        promoted = [r["strategy_name"] for r in ranked if r.get("promoted")]
+        msg = (
+            f"🏆 <b>Weekly Strategy Tournament</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"Strategies ranked: {len(ranked)}/{len(results)}\n"
+            f"Promoted: {', '.join(promoted) if promoted else 'none'}"
+        )
+        telegram.send_alert(msg, severity="INFO")
+        logger.info("weekly_tournament_complete", promoted=promoted)
+    except Exception as e:
+        logger.error("weekly_tournament_failed", error=str(e))
+
+
+def job_missed_opportunity_scan():
+    """3:45 PM Mon–Thu — log today's moves that no promoted strategy signaled."""
+    mo_cfg = _cfg.get("strategy_tournament", {}).get("missed_opportunity", {})
+    if not mo_cfg.get("enabled", False):
+        return
+    try:
+        from core.analysis.technical import compute_all
+        from core.learning.mistake_analyzer import detect_missed_opportunities
+        from core.market_data.historical import fetch_historical_yfinance
+
+        df = fetch_historical_yfinance("NIFTY", period="10d", interval="5m")
+        if df.empty:
+            logger.warning("missed_opp_scan_no_data")
+            return
+        rows = detect_missed_opportunities(compute_all(df), scan_date=date.today())
+        logger.info("missed_opportunity_scan_complete", found=len(rows))
+        if rows:
+            from notifications.telegram_bot import telegram
+            lines = [
+                f"• {r['direction']} move {r['move_pct']:.2f}% — would-have-caught: "
+                f"{', '.join(r['would_have_matched'])}"
+                for r in rows
+            ]
+            telegram.send_alert(
+                "🔍 <b>Missed Opportunities Today</b>\n" + "\n".join(lines),
+                severity="WARNING",
+            )
+    except Exception as e:
+        logger.error("missed_opportunity_scan_failed", error=str(e))
+
+
 # ── Scheduler Setup ────────────────────────────────────────────────────────────
 
 def create_scheduler() -> BackgroundScheduler:
@@ -394,6 +448,23 @@ def create_scheduler() -> BackgroundScheduler:
         job_ml_retrain_check, CronTrigger(
             hour=20, minute=0, day_of_week="mon-fri", timezone=IST
         ), id="ml_retrain", replace_existing=True
+    )
+
+    # Weekly strategy tournament (AI brain): run_day 10:00 IST
+    t_cfg = _cfg.get("strategy_tournament", {})
+    run_day = str(t_cfg.get("run_day", "sunday"))[:3].lower()
+    scheduler.add_job(
+        job_weekly_tournament, CronTrigger(
+            hour=10, minute=0, day_of_week=run_day, timezone=IST
+        ), id="weekly_tournament", replace_existing=True
+    )
+
+    # Daily missed-opportunity scan: 3:45 PM Mon–Thu, after square-off (15:10)
+    # and the daily report (15:30)
+    scheduler.add_job(
+        job_missed_opportunity_scan, CronTrigger(
+            hour=15, minute=45, day_of_week="mon-thu", timezone=IST
+        ), id="missed_opportunity_scan", replace_existing=True
     )
 
     logger.info("scheduler_configured", jobs=len(scheduler.get_jobs()))
