@@ -172,3 +172,17 @@ class StrategyRanking(Base):
     rank = Column(Integer)                                  # 1 = best; NULL if not ranked
     promoted = Column(Boolean, default=False)
     status = Column(String(20), default="ranked")           # ranked | insufficient_data | errored
+
+
+class MissedOpportunity(Base):
+    """A profitable move no promoted strategy signaled — logged daily after close."""
+    __tablename__ = "missed_opportunities"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    date = Column(DateTime, nullable=False)                # trading day of the move
+    underlying = Column(String(20), default="NIFTY")
+    move_pct = Column(Float, default=0.0)                  # size of the missed move (%)
+    direction = Column(String(2))                          # CE | PE
+    would_have_matched = Column(JSON)                      # non-promoted strategy names that fired
+    reason = Column(String(60), default="no_promoted_strategy_signaled")

@@ -235,6 +235,8 @@ strategy_tournament:
     win_rate: 0.20
     max_drawdown: 0.20                  # inverted: lower drawdown scores higher
   profit_factor_cap: 10.0               # inf/huge PF capped before normalization
+  opportunity_capture_weight: 0.10      # blend share for missed-opp capture rate (score_weights stays sum=1.0)
+  live_score_adjustment_step: 0.02      # per-trade nudge to a strategy's latest ranking score
   missed_opportunity:                   # consumed by Plan 3
     enabled: true
     min_move_pct_threshold: 0.5
