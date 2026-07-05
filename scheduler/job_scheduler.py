@@ -101,8 +101,9 @@ def job_signal_scan():
         from core.analysis.technical import compute_all
         from core.analysis.options_analytics import get_options_analytics_summary
         from core.signals.regime_detector import detect_regime
-        from core.signals.signal_engine import generate_signal
-        from core.signals.strategy_selector import resolve_tradeable_instrument, get_next_thursday_expiry
+        from core.signals.strategy_selector import (
+            resolve_tradeable_instrument, get_next_thursday_expiry, select_best_signal,
+        )
         from core.execution.paper_trader import paper_trader
         from core.execution.order_manager import order_manager
         from core.execution.position_manager import position_manager
@@ -137,9 +138,10 @@ def job_signal_scan():
         # Regime detection
         regime = detect_regime(df, _global_context, _news_sentiment, options_ctx)
 
-        # Signal generation
-        signal = generate_signal(
-            df_5m=df,
+        # Signal generation: promoted tournament strategies when available,
+        # otherwise the original hardcoded pipeline (select_best_signal decides).
+        signal = select_best_signal(
+            df=df,
             regime=regime,
             options_context=options_ctx,
             global_context=_global_context,

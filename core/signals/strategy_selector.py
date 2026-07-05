@@ -2,8 +2,10 @@
 Maps regime + signal to concrete option strike selection and trade parameters.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
+import pandas as pd
+import pytz
 import structlog
 import yaml
 
@@ -15,6 +17,7 @@ from core.signals.regime_detector import RegimeResult
 
 logger = structlog.get_logger(__name__)
 _cfg = yaml.safe_load(open("config/settings.yaml", encoding="utf-8"))
+IST = pytz.timezone("Asia/Kolkata")
 
 
 def get_next_thursday_expiry() -> date:
@@ -120,3 +123,84 @@ def resolve_tradeable_instrument(
         "tp2": levels["tp2"],
         "tp3": levels["tp3"],
     }
+
+
+def select_best_signal(
+    df: pd.DataFrame,
+    regime: RegimeResult,
+    options_context: dict,
+    global_context: dict,
+    news_sentiment: dict,
+    spot_price: float,
+    available_capital: float,
+    strategies: Optional[list] = None,
+    now: Optional[datetime] = None,
+) -> TradeSignal:
+    """Promoted-strategy signal selection (AI brain spec §4).
+
+    df must already be enriched via compute_all(). Behavior:
+    - No strategies promoted yet (before the first tournament) -> the original
+      hardcoded signal_engine pipeline runs unchanged.
+    - Otherwise every promoted strategy evaluates the current bar (failures
+      isolated per strategy) and the highest-composite_score valid signal
+      wins, ties broken by tournament rank. If none fire there is NO
+      fallback — the system trades nothing this bar.
+    """
+    from core.execution.risk_manager import risk_manager
+    from core.signals.signal_engine import generate_signal, _invalid_signal
+    from core.strategies.registry import get_active_strategies
+
+    if strategies is None:
+        strategies = get_active_strategies()
+
+    if not strategies:
+        return generate_signal(
+            df_5m=df,
+            regime=regime,
+            options_context=options_context,
+            global_context=global_context,
+            news_sentiment=news_sentiment,
+            spot_price=spot_price,
+            available_capital=available_capital,
+        )
+
+    rank_order = {s.name: i for i, s in enumerate(strategies)}  # registry returns rank order
+    candidates: list[TradeSignal] = []
+    for strat in strategies:
+        try:
+            sig = strat.generate_signal(
+                df, regime, options_context, global_context, news_sentiment, now=now
+            )
+        except Exception as e:  # one broken strategy never blocks the scan
+            logger.warning("promoted_strategy_failed", strategy=strat.name, error=str(e))
+            continue
+        if sig.is_valid:
+            candidates.append(sig)
+
+    if not candidates:
+        return _invalid_signal(
+            "No promoted strategy produced a valid signal",
+            regime,
+            now or datetime.now(IST),
+        )
+
+    best = min(
+        candidates,
+        key=lambda s: (-s.composite_score, rank_order.get(s.strategy, len(rank_order))),
+    )
+
+    # Strategy archetypes detect patterns but don't size positions — apply the
+    # same score- and VIX-adjusted sizing the hardcoded pipeline uses.
+    order_value = risk_manager.compute_position_size(
+        best.composite_score, global_context.get("india_vix"), available_capital
+    )
+    best.order_value = round(order_value, 2)
+    if spot_price > 0:
+        best.quantity = max(1, int(order_value / spot_price))
+        best.entry_price = spot_price
+    logger.info(
+        "promoted_signal_selected",
+        strategy=best.strategy, direction=best.direction,
+        score=best.composite_score, candidates=len(candidates),
+    )
+    return best
