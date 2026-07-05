@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Strategy Leaderboard{% endblock %}
+{% block content %}
+<div class="app">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <span>🎯</span> NiftySniper
+    </div>
+    <ul class="nav-links">
+      <li><a href="/">📊 Dashboard</a></li>
+      <li class="active"><a href="/strategies">🏆 Strategy Leaderboard</a></li>
+      <li><a href="/logout">🚪 Logout</a></li>
+    </ul>
+    <div class="mode-badge {{ 'badge-live' if mode == 'live' else 'badge-paper' }}">
+      {{ mode.upper() }} MODE
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main class="main-content">
+
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="status-text">🏆 Strategy Leaderboard</span>
+        <span class="topbar-time">{{ generated_at }}</span>
+      </div>
+    </header>
+
+    <style>
+      .lb-section { margin: 24px 0; }
+      .lb-section h2 { margin-bottom: 12px; font-size: 1.1rem; }
+      .lb-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+      .lb-table th, .lb-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid rgba(128,128,128,0.25); }
+      .lb-table th { opacity: 0.7; font-weight: 600; }
+      .lb-badge { padding: 2px 8px; border-radius: 10px; font-size: 0.78rem; font-weight: 700; }
+      .lb-promoted { background: #14532d; color: #86efac; }
+      .lb-status { opacity: 0.7; }
+      .lb-empty { opacity: 0.6; padding: 12px 0; }
+      .lb-history-item { padding: 6px 0; border-bottom: 1px solid rgba(128,128,128,0.15); }
+    </style>
+
+    <section class="lb-section">
+      <h2>Current Rankings</h2>
+      <table class="lb-table">
+        <thead>
+          <tr>
+            <th>#</th><th>Strategy</th><th>Category</th><th>Score</th>
+            <th>Win Rate</th><th>PF</th><th>Sharpe</th><th>Max DD</th>
+            <th>Capture</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rankings %}
+          <tr>
+            <td>{{ r.rank if r.rank is not none else '—' }}</td>
+            <td>{{ r.strategy_name }}</td>
+            <td>{{ r.category or '—' }}</td>
+            <td>{{ "%.3f"|format(r.composite_score or 0) }}</td>
+            <td>{{ "%.1f"|format((r.win_rate or 0) * 100) }}%</td>
+            <td>{{ "%.2f"|format(r.profit_factor or 0) }}</td>
+            <td>{{ "%.2f"|format(r.sharpe_approx or 0) }}</td>
+            <td>₹{{ "%.0f"|format(r.max_drawdown or 0) }}</td>
+            <td>{{ "%.0f"|format((r.opportunity_capture_rate or 0) * 100) }}%</td>
+            <td>
+              {% if r.promoted %}<span class="lb-badge lb-promoted">PROMOTED</span>
+              {% else %}<span class="lb-status">{{ r.status }}</span>{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="lb-empty">No tournament has run yet — rankings appear after the first weekly run.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="lb-section">
+      <h2>Promotion History</h2>
+      {% for h in history %}
+      <div class="lb-history-item">
+        <strong>{{ h.period_end[:10] }}</strong> —
+        {{ h.promoted | join(', ') if h.promoted else 'none promoted' }}
+      </div>
+      {% else %}
+      <div class="lb-empty">No runs yet.</div>
+      {% endfor %}
+    </section>
+
+    <section class="lb-section">
+      <h2>Recent Missed Opportunities</h2>
+      <table class="lb-table">
+        <thead>
+          <tr><th>Date</th><th>Underlying</th><th>Direction</th><th>Move</th><th>Would Have Caught</th></tr>
+        </thead>
+        <tbody>
+          {% for m in missed_opportunities %}
+          <tr>
+            <td>{{ m.date[:10] if m.date else '—' }}</td>
+            <td>{{ m.underlying }}</td>
+            <td>{{ m.direction }}</td>
+            <td>{{ "%.2f"|format(m.move_pct or 0) }}%</td>
+            <td>{{ m.would_have_matched | join(', ') }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="lb-empty">No missed opportunities logged.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+  </main>
+</div>
+{% endblock %}

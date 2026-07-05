@@ -283,3 +283,26 @@ async def api_download_report(date_str: str, request: Request):
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     path = generate_daily_csv(trading_date, _system_mode)
     return FileResponse(str(path), filename=path.name, media_type="text/csv")
+
+
+# ── Strategy Leaderboard (AI brain) ────────────────────────────────────────────
+
+@app.get("/strategies", response_class=HTMLResponse)
+async def strategies_page(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login")
+    from core.learning.leaderboard import get_leaderboard_data
+    data = get_leaderboard_data()
+    return templates.TemplateResponse(request, "leaderboard.html", {
+        "user": user,
+        "mode": _system_mode,
+        **data,
+    })
+
+
+@app.get("/api/strategy_leaderboard")
+async def api_strategy_leaderboard(request: Request):
+    require_auth(request)
+    from core.learning.leaderboard import get_leaderboard_data
+    return get_leaderboard_data()
