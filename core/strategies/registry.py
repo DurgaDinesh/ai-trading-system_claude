@@ -32,3 +32,45 @@ def get_strategy_by_name(name: str) -> Optional[Strategy]:
         if strat.name == name:
             return strat
     return None
+
+
+def get_promoted_strategy_names(session_factory=None) -> list[str]:
+    """Promoted strategy names from the latest tournament run, ordered by rank.
+
+    Returns [] if no tournament has run yet or the DB is unavailable — callers
+    treat an empty list as "fall back to the hardcoded pipeline" (spec §4).
+    """
+    try:
+        from sqlalchemy import func
+
+        from database.models import StrategyRanking
+
+        if session_factory is None:
+            from database.trade_journal import SessionLocal
+            session_factory = SessionLocal
+        db = session_factory()
+        try:
+            latest_period_end = db.query(func.max(StrategyRanking.period_end)).scalar()
+            if latest_period_end is None:
+                return []
+            rows = (
+                db.query(StrategyRanking)
+                .filter(
+                    StrategyRanking.period_end == latest_period_end,
+                    StrategyRanking.promoted.is_(True),
+                )
+                .order_by(StrategyRanking.rank)
+                .all()
+            )
+            return [r.strategy_name for r in rows]
+        finally:
+            db.close()
+    except Exception:
+        return []
+
+
+def get_active_strategies(session_factory=None) -> list[Strategy]:
+    """Instances of the currently promoted strategies, in tournament-rank order."""
+    names = get_promoted_strategy_names(session_factory)
+    by_name = {s.name: s for s in get_all_strategies()}
+    return [by_name[n] for n in names if n in by_name]
